@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>ModernHeat Solutions</title></head>
+<body>
+<div id="app">
+  <!-- JS-rendered content placeholder -->
+  <p>Loading prices...</p>
+</div>
+<!-- Simulating JS-rendered content that Playwright waits for -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('app').innerHTML = `
+      <h1>ModernHeat Solutions</h1>
+      <div class="prices-section">
+        <h2>Pricing</h2>
+        <p>Hourly rate: £80 per hour</p>
+        <p>Emergency call-out: from £120</p>
+      </div>
+    `;
+  });
+</script>
+</body>
+</html>

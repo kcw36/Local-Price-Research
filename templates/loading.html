@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Scanning… — Local Pricing Research{% endblock %}
+
+{% block head %}
+<style>
+  .loading-card { max-width: 520px; margin: 0 auto; text-align: center; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid #e0e0e0;
+    border-top-color: #1a1a2e;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+    margin: 1rem auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-bar-wrap {
+    background: #e9ecef;
+    border-radius: 6px;
+    height: 12px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    background: #1a1a2e;
+    height: 100%;
+    width: 0%;
+    transition: width 0.4s ease;
+    border-radius: 6px;
+  }
+  .progress-text { font-size: 0.9rem; color: #666; margin-bottom: 1.5rem; }
+  .status-label { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .cancel-link { font-size: 0.85rem; color: #999; text-decoration: none; margin-top: 1rem; display: inline-block; }
+  .cancel-link:hover { color: #666; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="loading-card">
+  <div class="card">
+    <div class="spinner"></div>
+    <p class="status-label" id="statusLabel">Scanning {{ area }} for {{ trade_type }}…</p>
+
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+    <p class="progress-text" id="progressText">Starting up…</p>
+
+    <a href="/" class="cancel-link">← Start a new search</a>
+  </div>
+</div>
+
+<script>
+  const jobId = "{{ job_id }}";
+  const statusLabel = document.getElementById('statusLabel');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+
+  async function poll() {
+    try {
+      const resp = await fetch('/status/' + jobId);
+      if (!resp.ok) {
+        statusLabel.textContent = 'Error checking status — retrying…';
+        return;
+      }
+      const data = await resp.json();
+
+      if (data.status === 'running' || data.status === 'pending') {
+        const current = data.progress_current || 0;
+        const total = data.progress_total || 0;
+        if (total > 0) {
+          const pct = Math.round((current / total) * 100);
+          progressBar.style.width = pct + '%';
+          progressText.textContent = `${current} of ${total} businesses scanned`;
+          statusLabel.textContent = `Scanning ${data.area} for ${data.trade_type}…`;
+        } else {
+          progressText.textContent = 'Looking up businesses on Yell.com…';
+        }
+        setTimeout(poll, 3000);
+
+      } else if (data.status === 'done') {
+        progressBar.style.width = '100%';
+        progressText.textContent = 'Complete! Loading results…';
+        statusLabel.textContent = 'Scan complete ✓';
+        setTimeout(() => { window.location.href = '/results/' + jobId; }, 800);
+
+      } else if (data.status === 'timeout') {
+        statusLabel.textContent = 'Scan timed out';
+        progressText.textContent = data.error_message || 'Try a smaller area.';
+        progressBar.style.background = '#ffc107';
+
+      } else if (data.status === 'error') {
+        statusLabel.textContent = 'Scan failed';
+        progressText.textContent = data.error_message || 'An unexpected error occurred.';
+        progressBar.style.background = '#dc3545';
+        progressBar.style.width = '100%';
+      }
+
+    } catch (e) {
+      // Network blip — keep polling
+      setTimeout(poll, 5000);
+    }
+  }
+
+  // Start polling
+  setTimeout(poll, 1500);
+</script>
+{% endblock %}

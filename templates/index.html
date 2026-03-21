@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Search — Local Pricing Research{% endblock %}
+
+{% block head %}
+<style>
+  .search-card { max-width: 520px; margin: 0 auto; }
+  .form-group { margin-bottom: 1.25rem; }
+  label { display: block; font-weight: 600; margin-bottom: 0.4rem; font-size: 0.9rem; }
+  input, select {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 1rem;
+    color: #222;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: #1a1a2e;
+    box-shadow: 0 0 0 3px rgba(26,26,46,0.1);
+  }
+  .form-hint { font-size: 0.8rem; color: #888; margin-top: 0.3rem; }
+  .error-text { color: #dc3545; font-size: 0.85rem; margin-top: 0.75rem; display: none; }
+  .submit-btn { width: 100%; padding: 0.75rem; font-size: 1rem; }
+  .info-box {
+    background: #e8f4fd;
+    border: 1px solid #bee5eb;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: #0c5460;
+    margin-bottom: 1.5rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="search-card">
+  <div class="card">
+    <h2 style="margin-bottom:1rem;">Find local market rates</h2>
+    <div class="info-box">
+      Scans Yell.com for businesses in your area, visits their websites,
+      and extracts any published pricing. Takes 3–8 minutes for up to 20 businesses.
+    </div>
+
+    <form id="searchForm">
+      <div class="form-group">
+        <label for="area">Area</label>
+        <input
+          type="text"
+          id="area"
+          name="area"
+          value="{{ default_area }}"
+          placeholder="e.g. Solihull, Birmingham, B91"
+          required
+          maxlength="100"
+        >
+        <p class="form-hint">Town name or UK postcode area</p>
+      </div>
+
+      <div class="form-group">
+        <label for="trade_type">Trade type</label>
+        <select id="trade_type" name="trade_type">
+          <option value="plumbers" {% if default_trade == "plumbers" %}selected{% endif %}>Plumbers</option>
+          <option value="gas engineers" {% if default_trade == "gas engineers" %}selected{% endif %}>Gas Engineers</option>
+          <option value="electricians" {% if default_trade == "electricians" %}selected{% endif %}>Electricians</option>
+          <option value="builders" {% if default_trade == "builders" %}selected{% endif %}>Builders</option>
+          <option value="roofers" {% if default_trade == "roofers" %}selected{% endif %}>Roofers</option>
+          <option value="boiler repair" {% if default_trade == "boiler repair" %}selected{% endif %}>Boiler Repair</option>
+          <option value="heating engineers" {% if default_trade == "heating engineers" %}selected{% endif %}>Heating Engineers</option>
+        </select>
+      </div>
+
+      <p class="error-text" id="errorText"></p>
+
+      <button type="submit" class="btn submit-btn" id="submitBtn">
+        Start scan
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById('searchForm');
+  const submitBtn = document.getElementById('submitBtn');
+  const errorText = document.getElementById('errorText');
+
+  // Client-side validation
+  function validate() {
+    const area = document.getElementById('area').value.trim();
+    if (!area) {
+      showError('Please enter an area.');
+      return false;
+    }
+    if (/[^a-zA-Z0-9\s,\-\.]/.test(area)) {
+      showError('Area contains invalid characters.');
+      return false;
+    }
+    return true;
+  }
+
+  function showError(msg) {
+    errorText.textContent = msg;
+    errorText.style.display = 'block';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorText.style.display = 'none';
+
+    if (!validate()) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Starting scan…';
+
+    const formData = new FormData(form);
+    try {
+      const resp = await fetch('/search', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        window.location.href = '/results/' + data.job_id;
+      } else {
+        const err = await resp.json();
+        showError(err.detail || 'Something went wrong. Please try again.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Start scan';
+      }
+    } catch (e) {
+      showError('Network error — please check your connection and try again.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Start scan';
+    }
+  });
+</script>
+{% endblock %}
