@@ -4,9 +4,9 @@ Use the `/browse` skill from gstack for **all web browsing**. Never use `mcp__cl
 
 ## Setup
 
-To install gstack:
+gstack is bundled in this project at `.claude/skills/gstack`. If skills aren't working, run:
 ```bash
-git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
+cd .claude/skills/gstack && ./setup
 ```
 
 ## Available gstack skills

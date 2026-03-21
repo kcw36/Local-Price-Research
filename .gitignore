@@ -1,0 +1,45 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+*.sqlite3
+*.db
+
+# Output files
+results_*.csv
+results_*.json
+
+# gstack compiled binaries
+.claude/skills/*/dist/
+.claude/skills/gstack/browse/dist/
+.claude/skills/gstack/bin/
+.claude/skills/*/bin/
+**/*.exe
+**/*.bun-build
+.claude/skills/gstack/node_modules/
+.claude/skills/node_modules/
+
+# gstack build artifacts
+**/*.cjs
+.claude/skills/gstack/.env
+.claude/skills/gstack/supabase/config.sh
+.claude/skills/gstack/supabase/migrations/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
