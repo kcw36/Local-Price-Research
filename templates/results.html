@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Results — {{ area }} {{ trade_type }} — Local Pricing Research{% endblock %}
+
+{% block head %}
+<style>
+  .summary-card { border-left: 4px solid #1a1a2e; }
+  .summary-text { font-size: 1.05rem; line-height: 1.6; }
+  .stat-row { display: flex; gap: 2rem; margin-top: 1rem; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+  .stat-label { font-size: 0.75rem; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
+  .price-pill {
+    display: inline-block;
+    background: #e8f4fd;
+    color: #0c5460;
+    border-radius: 4px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.85rem;
+    font-family: monospace;
+  }
+  .no-price { color: #ccc; font-style: italic; font-size: 0.85rem; }
+  .biz-name { font-weight: 600; }
+  .biz-url { font-size: 0.8rem; color: #888; }
+  .biz-url a { color: #1a1a2e; }
+  .back-link { margin-bottom: 1.5rem; display: inline-block; color: #1a1a2e; text-decoration: none; font-size: 0.9rem; }
+  .back-link:hover { text-decoration: underline; }
+  .section-title { font-size: 1rem; font-weight: 600; color: #444; margin-bottom: 0.75rem; }
+  .meta-bar { font-size: 0.85rem; color: #888; margin-bottom: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← New search</a>
+
+{% if job.status == 'timeout' %}
+<div class="error-box">
+  <strong>Scan timed out</strong> — {{ job.error_message or "Try a smaller area or fewer businesses." }}
+</div>
+{% elif job.status == 'error' %}
+<div class="error-box">
+  <strong>Scan failed</strong> — {{ job.error_message or "An unexpected error occurred." }}
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="card summary-card">
+  <p class="section-title">Market Rate Summary</p>
+  <p class="meta-bar">{{ area }} · {{ trade_type }} · {{ businesses | length }} businesses scanned</p>
+
+  {% if summary.low_sample_warning %}
+  <div class="warning-box">
+    ⚠ Small sample: only {{ summary.sample_size }} price{{ 's' if summary.sample_size != 1 else '' }} found.
+    Treat this as indicative rather than definitive.
+  </div>
+  {% endif %}
+
+  <p class="summary-text">{{ summary.summary_text }}</p>
+
+  {% if summary.price_range %}
+  <div class="stat-row">
+    <div class="stat">
+      <div class="stat-value">£{{ "%.0f" | format(summary.price_range.min) }}</div>
+      <div class="stat-label">Lowest</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">£{{ "%.0f" | format(summary.price_range.median) }}</div>
+      <div class="stat-label">Median</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">£{{ "%.0f" | format(summary.price_range.max) }}</div>
+      <div class="stat-label">Highest</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ summary.sample_size }}</div>
+      <div class="stat-label">Prices found</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not summary or summary.sample_size == 0 %}
+<div class="card">
+  <p style="color:#888; font-style:italic;">
+    No pricing data was found across the {{ businesses | length }} businesses scanned.
+    Most tradespeople in this area appear to quote on request rather than publishing prices online.
+  </p>
+</div>
+{% endif %}
+
+{% if businesses %}
+<div class="card">
+  <p class="section-title">Business Details ({{ businesses | length }})</p>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:25%">Business</th>
+        <th style="width:40%">Prices found</th>
+        <th style="width:15%">Confidence</th>
+        <th style="width:20%">Method</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for biz in businesses %}
+      <tr>
+        <td>
+          <div class="biz-name">{{ biz.name }}</div>
+          {% if biz.website %}
+          <div class="biz-url"><a href="{{ biz.website }}" target="_blank" rel="noopener">website ↗</a></div>
+          {% endif %}
+          {% if biz.phone %}
+          <div class="biz-url">{{ biz.phone }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if biz.prices %}
+            {% for p in biz.prices %}
+            <div style="margin-bottom:0.25rem;">
+              <span class="price-pill">£{{ "%.0f" | format(p.price) }} {{ p.unit }}</span>
+              <span style="font-size:0.8rem;color:#555;">{{ p.service }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <span class="no-price">no pricing found</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if biz.prices %}
+            {% set max_conf = namespace(val='Low') %}
+            {% for p in biz.prices %}
+              {% if p.confidence == 'High' %}{% set max_conf.val = 'High' %}
+              {% elif p.confidence == 'Med' and max_conf.val == 'Low' %}{% set max_conf.val = 'Med' %}
+              {% endif %}
+            {% endfor %}
+            <span class="badge badge-{{ max_conf.val | lower }}">{{ max_conf.val }}</span>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td style="font-size:0.8rem; color:#888;">
+          {{ biz.extraction_method }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
