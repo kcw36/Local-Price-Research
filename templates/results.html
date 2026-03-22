@@ -5,7 +5,7 @@
 <style>
   .summary-card { border-left: 4px solid #1a1a2e; }
   .summary-text { font-size: 1.05rem; line-height: 1.6; }
-  .stat-row { display: flex; gap: 2rem; margin-top: 1rem; flex-wrap: wrap; }
+  .stat-row { display: flex; gap: 2rem; margin-top: 1rem; flex-wrap: wrap; justify-content: flex-start; }
   .stat { text-align: center; }
   .stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
   .stat-label { font-size: 0.75rem; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
@@ -26,11 +26,54 @@
   .back-link:hover { text-decoration: underline; }
   .section-title { font-size: 1rem; font-weight: 600; color: #444; margin-bottom: 0.75rem; }
   .meta-bar { font-size: 0.85rem; color: #888; margin-bottom: 1rem; }
+  .table-responsive { width: 100%; overflow-x: auto; }
+
+  /* Mobile: stack table rows as individual cards */
+  @media (max-width: 640px) {
+    .biz-table { display: block; }
+    .biz-table thead { display: none; }
+    .biz-table tbody { display: block; }
+    .biz-table tr {
+      display: block;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      background: #fff;
+    }
+    .biz-table td {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      border: none;
+      padding: 0.3rem 0;
+    }
+    .biz-table td::before {
+      content: attr(data-label);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #888;
+      min-width: 80px;
+      flex-shrink: 0;
+      padding-top: 0.1rem;
+    }
+    .biz-table td:first-child::before { content: none; }
+    .biz-table td:first-child { padding-bottom: 0.4rem; border-bottom: 1px solid #f0f0f0; margin-bottom: 0.25rem; }
+    /* Hide method column on mobile — technical detail not useful to end users */
+    .biz-table td.col-method { display: none; }
+    .stat-row { gap: 1rem; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <a href="/" class="back-link">← New search</a>
+
+<h2 style="font-size:1.4rem; font-weight:700; margin-bottom:1.25rem; color:#1a1a2e;">
+  {{ trade_type | title }} in {{ area }}
+</h2>
 
 {% if job.status == 'timeout' %}
 <div class="error-box">
@@ -44,7 +87,7 @@
 
 {% if summary %}
 <div class="card summary-card">
-  <p class="section-title">Market Rate Summary</p>
+  <h3 class="section-title">Market Rate Summary</h3>
   <p class="meta-bar">{{ area }} · {{ trade_type }} · {{ businesses | length }} businesses scanned</p>
 
   {% if summary.low_sample_warning %}
@@ -81,17 +124,26 @@
 
 {% if not summary %}
 <div class="card">
-  <p style="color:#888; font-style:italic;">
+  {% if businesses | length == 0 %}
+  <p style="color:#888; font-style:italic; margin-bottom:1rem;">
+    No {{ trade_type }} listings were found in {{ area }} on Yell.com or Checkatrade.
+    Try a nearby city or town, or use a broader trade type (e.g. "plumbers" instead of "heating engineers").
+  </p>
+  {% else %}
+  <p style="color:#888; font-style:italic; margin-bottom:1rem;">
     No pricing data was found across the {{ businesses | length }} businesses scanned.
     Most tradespeople in this area appear to quote on request rather than publishing prices online.
   </p>
+  {% endif %}
+  <a href="/" class="btn" style="font-size:0.9rem; padding:0.5rem 1.2rem;">Try another search</a>
 </div>
 {% endif %}
 
 {% if businesses %}
 <div class="card">
-  <p class="section-title">Business Details ({{ businesses | length }})</p>
-  <table>
+  <h3 class="section-title">Business Details ({{ businesses | length }})</h3>
+  <div class="table-responsive">
+  <table class="biz-table">
     <thead>
       <tr>
         <th style="width:25%">Business</th>
@@ -112,7 +164,7 @@
           <div class="biz-url">{{ biz.phone }}</div>
           {% endif %}
         </td>
-        <td>
+        <td data-label="Prices">
           {% if biz.prices %}
             {% for p in biz.prices %}
             <div style="margin-bottom:0.25rem;">
@@ -124,7 +176,7 @@
             <span class="no-price">no pricing found</span>
           {% endif %}
         </td>
-        <td>
+        <td data-label="Confidence">
           {% if biz.prices %}
             {% set max_conf = namespace(val='Low') %}
             {% for p in biz.prices %}
@@ -137,13 +189,14 @@
             —
           {% endif %}
         </td>
-        <td style="font-size:0.8rem; color:#888;">
+        <td data-label="Method" class="col-method" style="font-size:0.8rem; color:#888;">
           {{ biz.extraction_method }}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 {% endblock %}
