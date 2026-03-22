@@ -44,7 +44,66 @@ _YELL_BASE = "https://www.yell.com"
 _YELL_SEARCH = "/ucs/UcsSearchAction.do?keywords={trade}&location={area}"
 
 _CHECKATRADE_BASE = "https://www.checkatrade.com"
-_CHECKATRADE_SEARCH = "/search?trade={trade}&location={area}"
+# URL format: /Search/{TradeSlug}/in/{Location}
+# TradeSlug must be singular, title-cased, spaces as hyphens (Checkatrade's own taxonomy).
+# Use _checkatrade_slug() to convert user input to the correct slug.
+_CHECKATRADE_SEARCH = "/Search/{trade}/in/{area}"
+
+# Mapping from common user-facing trade names to Checkatrade's URL slug taxonomy.
+# Checkatrade uses singular, hyphenated category names — these don't derive predictably
+# from user input (e.g. "boiler repair" → "Gas-Boiler-Servicing-Repair"), so we maintain
+# an explicit table for the predefined dropdown trades.
+_CHECKATRADE_SLUG_MAP: dict[str, str] = {
+    "plumbers": "Plumber",
+    "plumber": "Plumber",
+    "gas engineers": "Central-Heating-Engineer",
+    "gas engineer": "Central-Heating-Engineer",
+    "electricians": "Electrician",
+    "electrician": "Electrician",
+    "builders": "Builder",
+    "builder": "Builder",
+    "roofers": "Roofer",
+    "roofer": "Roofer",
+    "boiler repair": "Gas-Boiler-Servicing-Repair",
+    "heating engineers": "Central-Heating-Engineer",
+    "heating engineer": "Central-Heating-Engineer",
+    "painters": "Painter-Decorator",
+    "decorators": "Painter-Decorator",
+    "painters and decorators": "Painter-Decorator",
+    "painter decorator": "Painter-Decorator",
+    "handyman": "Handyman",
+    "locksmiths": "Locksmith",
+    "locksmith": "Locksmith",
+    "gardeners": "Gardener",
+    "gardener": "Gardener",
+    "cleaners": "Cleaner",
+    "tilers": "Tiler",
+    "tiler": "Tiler",
+    "plasterers": "Plasterer",
+    "plasterer": "Plasterer",
+    "carpenters": "Carpenter",
+    "carpenter": "Carpenter",
+}
+
+
+def _checkatrade_slug(trade_type: str) -> str:
+    """
+    Convert a user-supplied trade type string to a Checkatrade URL slug.
+
+    Uses an explicit mapping for known trade names. For unknown inputs, falls back
+    to a best-effort conversion: Title-Case, remove trailing 's', replace spaces
+    with hyphens. If the fallback also misses, Checkatrade will 404 silently and
+    scrape_checkatrade() will return an empty list.
+    """
+    key = trade_type.strip().lower()
+    if key in _CHECKATRADE_SLUG_MAP:
+        return _CHECKATRADE_SLUG_MAP[key]
+
+    # Best-effort fallback: Title-Case + hyphenate + basic de-pluralise
+    words = key.split()
+    if words and words[-1].endswith("s") and len(words[-1]) > 3:
+        words[-1] = words[-1][:-1]  # strip trailing 's' (rough singulariser)
+    return "-".join(w.capitalize() for w in words)
 
 
 # ---------------------------------------------------------------------------
@@ -58,17 +117,37 @@ async def _fetch_page_html(url: str, wait_ms: int = 2000) -> str:
 
     Uses domcontentloaded + a short wait rather than networkidle so that
     Cloudflare's JS challenge has time to complete without a long hang.
+    Applies stealth args to reduce headless browser fingerprinting.
     Returns "" on any error.
     """
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
             try:
                 context = await browser.new_context(
                     user_agent=_USER_AGENT,
                     locale="en-GB",
+                    # Viewport matching a common desktop resolution
+                    viewport={"width": 1366, "height": 768},
+                    # Additional headers to look more like a real browser
+                    extra_http_headers={
+                        "Accept-Language": "en-GB,en;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    },
                 )
                 page = await context.new_page()
+                # Remove the navigator.webdriver flag that Cloudflare uses to detect
+                # headless browsers — must be added before the first navigation.
+                await page.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=20000)
                     await page.wait_for_timeout(wait_ms)
@@ -202,38 +281,104 @@ def _parse_checkatrade_html(html: str) -> list[dict]:
     Parse Checkatrade search results HTML into a list of business dicts.
     Pure function — takes raw HTML, returns businesses. Testable with fixtures.
 
-    Note: Checkatrade uses React/Next.js. Class names may be hashed (e.g.
-    "MemberCard_name__xK3p"). We use substring matching ([class*=...]) as
-    a resilient fallback. If selectors break, inspect the live HTML and
-    update listing_selectors + field selectors below.
+    Checkatrade search page (URL: /Search/{Trade}/in/{Location}) renders
+    each result as a <li class="... bg-card rounded-2xl ..."> element.
+    The business name and Checkatrade profile URL come from the /trades/ link
+    inside the card. Phone numbers are hidden behind a "Reveal" button and
+    are not available in static HTML. External websites are not shown on the
+    search listing — they require visiting the /trades/ profile page.
+
+    Selector strategy:
+      Primary:  li elements containing a /trades/ link (current structure)
+      Fallback: any element containing a /trades/ link (handles future restructures)
     """
     soup = BeautifulSoup(html, "html.parser")
     businesses = []
+    seen_urls: set[str] = set()
 
-    listing_selectors = [
-        "[class*='MemberCard']",
-        "[class*='SearchResult']",
-        "[class*='member-card']",
-        "[class*='search-result']",
-        "[class*='TradeCard']",
-        "[class*='trade-card']",
-        "article",
+    # Primary strategy: <li> cards — each contains exactly one /trades/ link (the business)
+    li_cards = [
+        li for li in soup.find_all("li")
+        if li.find("a", href=lambda h: h and "/trades/" in h)
     ]
 
-    listings = []
-    for selector in listing_selectors:
-        candidates = soup.select(selector)
-        # Filter tiny elements (nav links, footer items, etc.)
-        candidates = [c for c in candidates if len(c.get_text(strip=True)) > 20]
-        if candidates:
-            listings = candidates
-            break
+    if li_cards:
+        for card in li_cards[: settings.max_businesses]:
+            profile_el = card.find("a", href=lambda h: h and "/trades/" in h)
+            if not profile_el:
+                continue
 
-    if not listings:
-        logger.warning("No Checkatrade listings found — page structure may have changed")
-        return businesses
+            href = profile_el.get("href", "")
+            checkatrade_url = (_CHECKATRADE_BASE + href) if href.startswith("/") else href
+            # Strip query/fragment from URL for dedup purposes
+            url_key = checkatrade_url.split("#")[0].split("?")[0]
+            if url_key in seen_urls:
+                continue
+            seen_urls.add(url_key)
 
-    for listing in listings[: settings.max_businesses]:
+            name = profile_el.get_text(strip=True)
+            if not name:
+                continue
+
+            # External website — Checkatrade sometimes surfaces it in the card
+            website_el = card.find(
+                "a", href=lambda h: h and h.startswith("http") and "checkatrade.com" not in h
+            )
+            website = website_el.get("href", "") if website_el else ""
+
+            # Phone — usually behind a JS "Reveal" button; grab if present
+            # Use CSS attribute selectors — BS4 lambda class matching is unreliable
+            # when the class value is a bare string (join('phone') → 'p h o n e').
+            phone_el = card.select_one(
+                '[class*="phone"], [class*="telephone"], [class*="tel-"]'
+            )
+            phone = phone_el.get_text(strip=True) if phone_el else ""
+
+            businesses.append(
+                {
+                    "name": name,
+                    "website": website,
+                    "phone": phone,
+                    "checkatrade_url": checkatrade_url,
+                    "yell_url": "",
+                    "source": "checkatrade",
+                }
+            )
+    else:
+        # Fallback: collect all unique /trades/ links on the page
+        logger.warning("No Checkatrade <li> cards found — falling back to /trades/ link scan")
+        for a in soup.find_all("a", href=lambda h: h and "/trades/" in h):
+            href = a.get("href", "")
+            checkatrade_url = (_CHECKATRADE_BASE + href) if href.startswith("/") else href
+            url_key = checkatrade_url.split("#")[0].split("?")[0]
+            if url_key in seen_urls:
+                continue
+            seen_urls.add(url_key)
+            name = a.get_text(strip=True)
+            if name and len(name) > 2:
+                businesses.append(
+                    {
+                        "name": name,
+                        "website": "",
+                        "phone": "",
+                        "checkatrade_url": checkatrade_url,
+                        "yell_url": "",
+                        "source": "checkatrade",
+                    }
+                )
+            if len(businesses) >= settings.max_businesses:
+                break
+
+    logger.info("Parsed %d businesses from Checkatrade", len(businesses))
+    return businesses
+
+
+def _parse_checkatrade_html_old_selectors(html: str) -> list[dict]:
+    """Legacy selector path kept for reference — no longer called."""
+    soup = BeautifulSoup(html, "html.parser")
+    businesses = []
+
+    for listing in soup.select("article")[: settings.max_businesses]:
         name = ""
         website = ""
         phone = ""
@@ -270,12 +415,11 @@ def _parse_checkatrade_html(html: str) -> list[dict]:
                     "website": website,
                     "phone": phone,
                     "checkatrade_url": checkatrade_url,
-                    "yell_url": "",  # Not applicable for Checkatrade results
+                    "yell_url": "",
                     "source": "checkatrade",
                 }
             )
 
-    logger.info("Parsed %d businesses from Checkatrade", len(businesses))
     return businesses
 
 
@@ -283,12 +427,19 @@ async def scrape_checkatrade(area: str, trade_type: str) -> list[dict]:
     """
     Scrape Checkatrade for businesses using Playwright.
     Returns list of: {name, website, phone, checkatrade_url, yell_url, source}
+
+    URL format: /Search/{TradeSlug}/in/{Location}
+    The trade slug is derived via _checkatrade_slug() which maps user input to
+    Checkatrade's own category taxonomy (singular, hyphenated).
     """
+    slug = _checkatrade_slug(trade_type)
+    # Checkatrade location: title-case city name (spaces allowed in path)
+    location = area.strip().title()
     search_url = _CHECKATRADE_BASE + _CHECKATRADE_SEARCH.format(
-        trade=quote_plus(trade_type), area=quote_plus(area)
+        trade=slug, area=location
     )
-    logger.info("Scraping Checkatrade: %s", search_url)
-    html = await _fetch_page_html(search_url)
+    logger.info("Scraping Checkatrade: %s (trade slug: %s)", search_url, slug)
+    html = await _fetch_page_html(search_url, wait_ms=4000)
     if not html:
         return []
     return _parse_checkatrade_html(html)
