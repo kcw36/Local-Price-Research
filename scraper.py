@@ -41,7 +41,7 @@ _USER_AGENT = (
 )
 
 _YELL_BASE = "https://www.yell.com"
-_YELL_SEARCH = "/search?keywords={trade}&location={area}"
+_YELL_SEARCH = "/ucs/UcsSearchAction.do?keywords={trade}&location={area}"
 
 _CHECKATRADE_BASE = "https://www.checkatrade.com"
 _CHECKATRADE_SEARCH = "/search?trade={trade}&location={area}"

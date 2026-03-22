@@ -223,6 +223,28 @@ async def test_scrape_directory_uses_yell_url():
 
 
 @pytest.mark.asyncio
+async def test_scrape_directory_uses_ucs_search_endpoint():
+    """
+    Regression: ISSUE-004 — scrape_directory was using /search?keywords=...
+    which returns Yell's own 404 page. The correct URL is /ucs/UcsSearchAction.do
+    which is the form action on the Yell.com homepage.
+    Found by /investigate on 2026-03-22.
+    """
+    html = _fixture("yell_solihull_plumbers.html")
+    mock_fetch = AsyncMock(return_value=html)
+    with patch("scraper._fetch_page_html", new=mock_fetch):
+        await scrape_directory("Solihull", "plumbers")
+    called_url = mock_fetch.call_args[0][0]
+    assert "/ucs/UcsSearchAction.do" in called_url, (
+        f"Expected /ucs/UcsSearchAction.do in URL, got: {called_url}. "
+        "Yell changed their search URL — /search?keywords=... returns 404."
+    )
+    assert "/search?" not in called_url, (
+        f"Old /search? URL still being used: {called_url}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_scrape_directory_returns_empty_on_fetch_failure():
     with patch("scraper._fetch_page_html", new=AsyncMock(return_value="")):
         businesses = await scrape_directory("Solihull", "plumbers")
