@@ -28,7 +28,11 @@ User submits search (area + trade type)
 POST /search → creates job → returns job_id
         │
         ▼ (background, async)
-scrape_directory(area, trade)   ← Yell.com listings via requests + BeautifulSoup
+scrape_directory(area, trade)   ─┐
+scrape_checkatrade(area, trade) ─┤ concurrent via asyncio.gather
+        (both via Playwright — bypasses Cloudflare)
+        │
+        ▼ dedup + merge
         │
         ▼ for each business
 visit_business_site(url)        ← Playwright headless browser (JS-rendered pages)
@@ -66,14 +70,14 @@ All settings are via environment variables (see `.env.example`):
 pytest tests/ -v
 ```
 
-70 tests across 5 test files. All network calls are mocked — no live scraping during tests.
+92 tests across 5 test files. All network calls are mocked — no live scraping during tests.
 
 ## Architecture
 
 - **`app.py`** — FastAPI routes, input validation, background job runner
 - **`config.py`** — Settings dataclass, shared Anthropic client singleton
 - **`database.py`** — SQLite job persistence (pending → running → done/error/timeout)
-- **`scraper.py`** — Yell.com scraper (requests + BeautifulSoup) + Playwright site visitor
+- **`scraper.py`** — Yell.com + Checkatrade directory scrapers (Playwright, bypasses Cloudflare) + business site visitor
 - **`extractor.py`** — Regex price extraction + optional LLM fallback
 - **`summary.py`** — LLM market rate summary + plain-text fallback
 - **`templates/`** — Jinja2 HTML templates (index, loading, results)
