@@ -21,11 +21,14 @@ from unittest.mock import AsyncMock, patch
 from scraper import (
     _parse_yell_html,
     _parse_checkatrade_html,
+    _parse_priced_services,
+    _checkatrade_location,
     _dedup_businesses,
     scrape_directory,
     scrape_checkatrade,
     scrape_all,
     visit_business_site,
+    visit_checkatrade_profile,
 )
 
 
@@ -256,20 +259,58 @@ async def test_scrape_directory_returns_empty_on_fetch_failure():
 # ---------------------------------------------------------------------------
 
 
+def test_checkatrade_location_postcode():
+    """Postcodes should be formatted as outcode-incode for Checkatrade URLs."""
+    assert _checkatrade_location("b93 8tg") == "B93-8tg"
+    assert _checkatrade_location("SW1A 1AA") == "SW1A-1aa"
+    assert _checkatrade_location("EC1A 1BB") == "EC1A-1bb"
+
+
+def test_checkatrade_location_city_name():
+    """City names should be title-cased and hyphenated."""
+    assert _checkatrade_location("solihull") == "Solihull"
+    assert _checkatrade_location("kings heath") == "Kings-Heath"
+
+
+@pytest.mark.asyncio
+async def test_scrape_checkatrade_uses_hyphenated_postcode():
+    """
+    Regression: postcodes with spaces produced broken URLs (e.g. /in/B93 8Tg).
+    Checkatrade expects /in/B93-8tg.
+    """
+    html = _fixture("checkatrade_solihull_plumbers.html")
+    mock_fetch = AsyncMock(return_value=html)
+    with patch("scraper._fetch_page_html", new=mock_fetch):
+        businesses, priced_services = await scrape_checkatrade("b93 8tg", "boiler repair")
+    called_url = mock_fetch.call_args[0][0]
+    assert "/in/B93-8tg" in called_url, f"Expected /in/B93-8tg in URL, got: {called_url}"
+    assert " " not in called_url.split("//", 1)[-1], f"URL path contains space: {called_url}"
+
+
 @pytest.mark.asyncio
 async def test_scrape_checkatrade_parses_fixture():
     html = _fixture("checkatrade_solihull_plumbers.html")
     with patch("scraper._fetch_page_html", new=AsyncMock(return_value=html)):
-        businesses = await scrape_checkatrade("Solihull", "plumbers")
+        businesses, priced_services = await scrape_checkatrade("Solihull", "plumbers")
     assert len(businesses) >= 3
     assert all(b["source"] == "checkatrade" for b in businesses)
 
 
 @pytest.mark.asyncio
+async def test_scrape_checkatrade_returns_priced_services():
+    html = _fixture("checkatrade_with_priced_services.html")
+    with patch("scraper._fetch_page_html", new=AsyncMock(return_value=html)):
+        businesses, priced_services = await scrape_checkatrade("B93 8TG", "gas boiler servicing")
+    assert len(priced_services) == 4
+    assert all(s["source"] == "checkatrade" for s in priced_services)
+
+
+@pytest.mark.asyncio
 async def test_scrape_checkatrade_returns_empty_on_fetch_failure():
     with patch("scraper._fetch_page_html", new=AsyncMock(return_value="")):
-        businesses = await scrape_checkatrade("Solihull", "plumbers")
+        businesses, priced_services = await scrape_checkatrade("Solihull", "plumbers")
     assert businesses == []
+    assert priced_services == []
 
 
 # ---------------------------------------------------------------------------
@@ -331,23 +372,26 @@ async def test_visit_business_site_returns_empty_for_empty_url():
 @pytest.mark.asyncio
 async def test_scrape_all_happy_path(monkeypatch):
     """
-    scrape_all should merge both sources, visit each website, extract prices,
+    scrape_all should scrape Checkatrade, visit profiles + websites, extract prices,
     and call the progress callback once per business.
     """
-    fake_yell = [
-        {"name": "Ace Plumbing", "website": "https://aceplumbing.example.com",
-         "phone": "0121 111 1111", "yell_url": "", "source": "yell"},
-    ]
-    fake_checkatrade = [
-        {"name": "Best Drains", "website": "https://bestdrains.example.com",
-         "phone": "0121 222 2222", "checkatrade_url": "", "yell_url": "", "source": "checkatrade"},
-    ]
+    fake_checkatrade = (
+        [
+            {"name": "Ace Plumbing", "website": "https://aceplumbing.example.com",
+             "phone": "0121 111 1111", "checkatrade_url": "https://www.checkatrade.com/trades/ace-1",
+             "yell_url": "", "source": "checkatrade"},
+            {"name": "Best Drains", "website": "https://bestdrains.example.com",
+             "phone": "0121 222 2222", "checkatrade_url": "https://www.checkatrade.com/trades/best-2",
+             "yell_url": "", "source": "checkatrade"},
+        ],
+        [],  # priced_services
+    )
     fake_prices = [{"price": 75.0, "service": "hourly rate", "unit": "per hour",
                     "confidence": "Med", "raw_text": "£75/hr"}]
 
-    monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=fake_yell))
     monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=fake_checkatrade))
     monkeypatch.setattr("scraper.visit_business_site", AsyncMock(return_value="£75 per hour"))
+    monkeypatch.setattr("scraper.visit_checkatrade_profile", AsyncMock(return_value={"phone": "", "website": ""}))
     monkeypatch.setattr("scraper.extract_prices", lambda text, url: fake_prices)
     monkeypatch.setattr("scraper.asyncio.sleep", AsyncMock())
 
@@ -356,7 +400,7 @@ async def test_scrape_all_happy_path(monkeypatch):
     def track_progress(current, total):
         progress_calls.append((current, total))
 
-    results = await scrape_all("Solihull", "plumbers", progress_cb=track_progress)
+    results, priced_services = await scrape_all("Solihull", "plumbers", progress_cb=track_progress)
 
     assert len(results) == 2
     names = {r["name"] for r in results}
@@ -370,25 +414,56 @@ async def test_scrape_all_happy_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scrape_all_returns_priced_services(monkeypatch):
+    """scrape_all should return priced services from Checkatrade as the second element."""
+    fake_priced = [
+        {"business_name": "Gas Pro", "service_name": "Boiler Repair",
+         "price_value": 95.0, "price_unit": "job", "source": "checkatrade"},
+    ]
+    fake_checkatrade = (
+        [{"name": "Gas Pro", "website": "", "phone": "0121 111 1111",
+          "checkatrade_url": "", "yell_url": "", "source": "checkatrade"}],
+        fake_priced,
+    )
+
+    monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=[]))
+    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=fake_checkatrade))
+    monkeypatch.setattr("scraper.visit_business_site", AsyncMock(return_value=""))
+    monkeypatch.setattr("scraper.visit_checkatrade_profile", AsyncMock(return_value={"phone": "", "website": ""}))
+    monkeypatch.setattr("scraper.extract_prices", lambda text, url: [])
+    monkeypatch.setattr("scraper.asyncio.sleep", AsyncMock())
+
+    results, priced_services = await scrape_all("Solihull", "plumbers")
+
+    assert len(results) == 1
+    assert priced_services == fake_priced
+
+
+@pytest.mark.asyncio
 async def test_scrape_all_deduplicates_across_sources(monkeypatch):
     """A business appearing in both Yell and Checkatrade with the same phone should appear once."""
+    import config
     shared_phone = "0121 111 1111"
     fake_yell = [
         {"name": "Ace Plumbing", "website": "https://aceplumbing.example.com",
          "phone": shared_phone, "yell_url": "", "source": "yell"},
     ]
-    fake_checkatrade = [
-        {"name": "Ace Plumbing Ltd", "website": "https://aceplumbing.example.com",
-         "phone": shared_phone, "checkatrade_url": "", "yell_url": "", "source": "checkatrade"},
-    ]
+    fake_checkatrade = (
+        [{"name": "Ace Plumbing Ltd", "website": "https://aceplumbing.example.com",
+          "phone": shared_phone, "checkatrade_url": "", "yell_url": "", "source": "checkatrade"}],
+        [],
+    )
 
+    # Enable Yell for this test
+    monkeypatch.setattr(config.settings, "sources_enabled", {"checkatrade": True, "yell": True})
     monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=fake_yell))
     monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=fake_checkatrade))
     monkeypatch.setattr("scraper.visit_business_site", AsyncMock(return_value=""))
+    monkeypatch.setattr("scraper.visit_checkatrade_profile", AsyncMock(return_value={"phone": "", "website": ""}))
     monkeypatch.setattr("scraper.extract_prices", lambda text, url: [])
     monkeypatch.setattr("scraper.asyncio.sleep", AsyncMock())
 
-    results = await scrape_all("Solihull", "plumbers")
+    results, _ = await scrape_all("Solihull", "plumbers")
 
     assert len(results) == 1
     assert results[0]["source"] == "yell"  # Yell takes precedence
@@ -396,33 +471,35 @@ async def test_scrape_all_deduplicates_across_sources(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_scrape_all_returns_empty_when_no_businesses(monkeypatch):
-    """If both directories find nothing, scrape_all returns [] without visiting any sites."""
+    """If both directories find nothing, scrape_all returns ([], []) without visiting any sites."""
     monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=[]))
-    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=[]))
+    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=([], [])))
     mock_visit = AsyncMock()
     monkeypatch.setattr("scraper.visit_business_site", mock_visit)
 
-    results = await scrape_all("Solihull", "plumbers")
+    results, priced_services = await scrape_all("Solihull", "plumbers")
 
     assert results == []
+    assert priced_services == []
     mock_visit.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_scrape_all_skips_visit_for_business_without_website(monkeypatch):
     """Business with no website URL should not trigger a Playwright visit."""
-    fake_businesses = [
-        {"name": "No Site Ltd", "website": "", "phone": "0121 333 3333",
-         "yell_url": "", "source": "yell"},
-    ]
-    monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=fake_businesses))
-    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=[]))
+    fake_checkatrade = (
+        [{"name": "No Site Ltd", "website": "", "phone": "0121 333 3333",
+          "checkatrade_url": "", "yell_url": "", "source": "checkatrade"}],
+        [],
+    )
+    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=fake_checkatrade))
     mock_visit = AsyncMock(return_value="")
     monkeypatch.setattr("scraper.visit_business_site", mock_visit)
+    monkeypatch.setattr("scraper.visit_checkatrade_profile", AsyncMock(return_value={"phone": "", "website": ""}))
     monkeypatch.setattr("scraper.extract_prices", lambda text, url: [])
     monkeypatch.setattr("scraper.asyncio.sleep", AsyncMock())
 
-    results = await scrape_all("Solihull", "plumbers")
+    results, _ = await scrape_all("Solihull", "plumbers")
 
     assert len(results) == 1
     assert results[0]["prices"] == []
@@ -433,19 +510,117 @@ async def test_scrape_all_skips_visit_for_business_without_website(monkeypatch):
 @pytest.mark.asyncio
 async def test_scrape_all_extraction_method_llm_when_low_confidence(monkeypatch):
     """extraction_method should be 'llm' when any price has confidence='Low'."""
-    fake_yell = [
-        {"name": "Ace Plumbing", "website": "https://aceplumbing.example.com",
-         "phone": "0121 111 1111", "yell_url": "", "source": "yell"},
-    ]
+    fake_checkatrade = (
+        [{"name": "Ace Plumbing", "website": "https://aceplumbing.example.com",
+          "phone": "0121 111 1111", "checkatrade_url": "", "yell_url": "", "source": "checkatrade"}],
+        [],
+    )
     llm_prices = [{"price": 80.0, "service": "callout", "unit": "fixed",
                    "confidence": "Low", "raw_text": "around eighty pounds"}]
 
-    monkeypatch.setattr("scraper.scrape_directory", AsyncMock(return_value=fake_yell))
-    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=[]))
+    monkeypatch.setattr("scraper.scrape_checkatrade", AsyncMock(return_value=fake_checkatrade))
     monkeypatch.setattr("scraper.visit_business_site", AsyncMock(return_value="around eighty pounds"))
+    monkeypatch.setattr("scraper.visit_checkatrade_profile", AsyncMock(return_value={"phone": "", "website": ""}))
     monkeypatch.setattr("scraper.extract_prices", lambda text, url: llm_prices)
     monkeypatch.setattr("scraper.asyncio.sleep", AsyncMock())
 
-    results = await scrape_all("Solihull", "plumbers")
+    results, _ = await scrape_all("Solihull", "plumbers")
 
     assert results[0]["extraction_method"] == "llm"
+
+
+# ---------------------------------------------------------------------------
+# _parse_priced_services — pure HTML parsing
+# ---------------------------------------------------------------------------
+
+
+def test_parse_priced_services_returns_all_cards():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    assert len(services) == 4
+
+
+def test_parse_priced_services_extracts_business_names():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    names = {s["business_name"] for s in services}
+    assert "Gas Pro Heating" in names
+    assert "Warmflow Services" in names
+    assert "Central Heat Experts" in names
+
+
+def test_parse_priced_services_extracts_prices():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    prices = sorted(s["price_value"] for s in services)
+    assert prices == [75.0, 95.0, 120.0, 140.0]
+
+
+def test_parse_priced_services_extracts_service_names():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    svc_names = {s["service_name"] for s in services}
+    assert "Boiler Diagnostic and Repair" in svc_names
+    assert "Boiler Service (Gas)" in svc_names
+    assert "Appliance Installation" in svc_names
+
+
+def test_parse_priced_services_extracts_units():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    units = {s["price_unit"] for s in services}
+    assert "job" in units
+    assert "appliance" in units
+
+
+def test_parse_priced_services_all_source_checkatrade():
+    html = _fixture("checkatrade_with_priced_services.html")
+    services = _parse_priced_services(html)
+    assert all(s["source"] == "checkatrade" for s in services)
+
+
+def test_parse_priced_services_empty_html_returns_empty():
+    assert _parse_priced_services("") == []
+
+
+def test_parse_priced_services_no_section_returns_empty():
+    html = "<html><body><p>No priced services here.</p></body></html>"
+    assert _parse_priced_services(html) == []
+
+
+# ---------------------------------------------------------------------------
+# visit_checkatrade_profile — async, mocks _fetch_page_html
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_visit_profile_extracts_phone():
+    html = '''<html><body>
+        <a href="tel:0121-555-1234">Call us</a>
+    </body></html>'''
+    with patch("scraper._fetch_page_html", new=AsyncMock(return_value=html)):
+        result = await visit_checkatrade_profile("https://www.checkatrade.com/trades/test-123")
+    assert result["phone"] == "0121-555-1234"
+
+
+@pytest.mark.asyncio
+async def test_visit_profile_extracts_website():
+    html = '''<html><body>
+        <a href="https://example-plumber.co.uk">Visit our website</a>
+    </body></html>'''
+    with patch("scraper._fetch_page_html", new=AsyncMock(return_value=html)):
+        result = await visit_checkatrade_profile("https://www.checkatrade.com/trades/test-123")
+    assert result["website"] == "https://example-plumber.co.uk"
+
+
+@pytest.mark.asyncio
+async def test_visit_profile_empty_url_returns_empty():
+    result = await visit_checkatrade_profile("")
+    assert result == {"phone": "", "website": ""}
+
+
+@pytest.mark.asyncio
+async def test_visit_profile_failure_returns_empty():
+    with patch("scraper._fetch_page_html", new=AsyncMock(return_value="")):
+        result = await visit_checkatrade_profile("https://www.checkatrade.com/trades/test-123")
+    assert result == {"phone": "", "website": ""}
