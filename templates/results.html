@@ -19,6 +19,25 @@
     font-family: monospace;
   }
   .no-price { color: #ccc; font-style: italic; font-size: 0.85rem; }
+  .source-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    vertical-align: middle;
+  }
+  .source-checkatrade { background: #e8f5e9; color: #2e7d32; }
+  .source-yell { background: #fff8e1; color: #f57f17; }
+  .source-website { background: #e3f2fd; color: #1565c0; }
+  .priced-svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem; }
+  .priced-svc-item { border: 1px solid #e8e8e8; border-radius: 6px; padding: 0.75rem; background: #fafafa; }
+  .priced-svc-name { font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
+  .priced-svc-price { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
+  .priced-svc-unit { font-size: 0.8rem; color: #888; }
+  .priced-svc-biz { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
   .biz-name { font-weight: 600; }
   .biz-url { font-size: 0.8rem; color: #888; }
   .biz-url a { color: #1a1a2e; }
@@ -85,7 +104,7 @@
 </div>
 {% endif %}
 
-{% if summary %}
+{% if summary and summary.sample_size > 0 %}
 <div class="card summary-card">
   <h3 class="section-title">Market Rate Summary</h3>
   <p class="meta-bar">{{ area }} · {{ trade_type }} · {{ businesses | length }} businesses scanned</p>
@@ -122,11 +141,33 @@
 </div>
 {% endif %}
 
-{% if not summary %}
+{% if summary and summary.by_service %}
+<div class="card">
+  <h3 class="section-title">Priced Services <span class="source-badge source-checkatrade">Checkatrade</span></h3>
+  <div class="priced-svc-grid">
+    {% for svc in summary.by_service %}
+    <div class="priced-svc-item">
+      <div class="priced-svc-name">{{ svc.service_name }}</div>
+      {% if svc.count >= 3 %}
+      <div class="priced-svc-price">£{{ "%.0f" | format(svc.min) }} – £{{ "%.0f" | format(svc.max) }}</div>
+      <div class="priced-svc-unit">median £{{ "%.0f" | format(svc.median) }} · {{ svc.count }} quotes</div>
+      {% else %}
+      <div class="priced-svc-price">
+        {% for p in svc.prices %}£{{ "%.0f" | format(p) }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </div>
+      <div class="priced-svc-unit">{{ svc.count }} quote{{ 's' if svc.count != 1 else '' }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if not summary or summary.sample_size == 0 %}
 <div class="card">
   {% if businesses | length == 0 %}
   <p style="color:#888; font-style:italic; margin-bottom:1rem;">
-    No {{ trade_type }} listings were found in {{ area }} on Yell.com or Checkatrade.
+    No {{ trade_type }} listings were found in {{ area }} on Checkatrade.
     Try a nearby city or town, or use a broader trade type (e.g. "plumbers" instead of "heating engineers").
   </p>
   {% else %}
@@ -156,7 +197,13 @@
       {% for biz in businesses %}
       <tr>
         <td>
-          <div class="biz-name">{{ biz.name }}</div>
+          <div class="biz-name">{{ biz.name }}
+            {% if biz.source == 'checkatrade' %}
+            <span class="source-badge source-checkatrade">Checkatrade</span>
+            {% elif biz.source == 'yell' %}
+            <span class="source-badge source-yell">Yell</span>
+            {% endif %}
+          </div>
           {% if biz.website %}
           <div class="biz-url"><a href="{{ biz.website }}" target="_blank" rel="noopener">website ↗</a></div>
           {% endif %}

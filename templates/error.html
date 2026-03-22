@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title }} — Local Pricing Research{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← New search</a>
+
+<div class="card" style="text-align:center; padding:2.5rem;">
+  <h2 style="font-size:1.3rem; font-weight:700; color:#1a1a2e; margin-bottom:0.75rem;">{{ error_title }}</h2>
+  <p style="color:#888; margin-bottom:1.5rem;">{{ error_message }}</p>
+  <a href="/" class="btn" style="font-size:0.9rem; padding:0.5rem 1.2rem;">Start a new search</a>
+</div>
+{% endblock %}
