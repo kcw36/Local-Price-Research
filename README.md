@@ -1,6 +1,6 @@
 # Local Pricing Research
 
-A local tool for researching market rates charged by UK tradespeople. Search by area and trade type, and the tool scrapes Yell.com business listings, visits each business website, extracts pricing information, and produces an LLM-generated market rate summary.
+A local tool for researching market rates charged by UK tradespeople. Search by area and trade type, and the tool scrapes Yell.com and Checkatrade business listings concurrently, visits each business website, extracts pricing information, and produces an LLM-generated market rate summary.
 
 ## Quick start
 

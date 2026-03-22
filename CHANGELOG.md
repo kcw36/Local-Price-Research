@@ -18,7 +18,6 @@ All notable changes to this project will be documented in this file.
 - `checkatrade_url` field on Checkatrade results
 - Checkatrade HTML fixture for tests (`tests/fixtures/checkatrade_solihull_plumbers.html`)
 - 22 new scraper tests; total 92 tests across 5 suites
-- Programmatic quote requests deferred to TODOS.md (P3)
 
 ## [0.1.0.0] - 2026-03-21
 
