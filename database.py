@@ -47,7 +47,13 @@ def _get_conn():
 
 
 def init_db() -> None:
-    """Create tables if they don't exist. Safe to call multiple times."""
+    """Create tables if they don't exist. Safe to call multiple times.
+
+    Also cleans up any jobs that were left in 'pending' or 'running' state
+    from a previous server run. Those jobs will never complete, so they are
+    marked as errors so the user sees a clear message instead of an infinite
+    spinner.
+    """
     with _get_conn() as conn:
         conn.execute(
             """
@@ -64,6 +70,33 @@ def init_db() -> None:
                 updated_at      TEXT NOT NULL
             )
         """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS priced_services (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id          TEXT NOT NULL,
+                business_name   TEXT NOT NULL,
+                service_name    TEXT NOT NULL,
+                price_value     REAL NOT NULL,
+                price_unit      TEXT NOT NULL DEFAULT '',
+                source          TEXT NOT NULL DEFAULT 'checkatrade',
+                created_at      TEXT NOT NULL,
+                FOREIGN KEY (job_id) REFERENCES jobs(id),
+                UNIQUE(job_id, business_name, service_name)
+            )
+        """
+        )
+        # Mark orphaned jobs from a prior server run — they will never complete.
+        conn.execute(
+            """
+            UPDATE jobs
+            SET status = ?,
+                error_message = 'Server restarted — scan did not complete. Please try again.',
+                updated_at = ?
+            WHERE status IN ('pending', 'running')
+            """,
+            (STATUS_ERROR, _now()),
         )
 
 
@@ -122,6 +155,44 @@ def complete_job(job_id: str, results: dict | list) -> None:
         """,
             (STATUS_DONE, json.dumps(results), _now(), job_id),
         )
+
+
+def store_priced_services(job_id: str, services: list[dict]) -> None:
+    """Insert priced services for a job. Deduplicates on (job_id, business_name, service_name)."""
+    if not services:
+        return
+    now = _now()
+    with _get_conn() as conn:
+        for svc in services:
+            try:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO priced_services
+                      (job_id, business_name, service_name, price_value, price_unit, source, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        job_id,
+                        svc.get("business_name", ""),
+                        svc.get("service_name", ""),
+                        svc.get("price_value", 0.0),
+                        svc.get("price_unit", ""),
+                        svc.get("source", "checkatrade"),
+                        now,
+                    ),
+                )
+            except Exception:
+                pass  # skip individual insert failures, don't abort the batch
+
+
+def get_priced_services(job_id: str) -> list[dict]:
+    """Return all priced services for a job as a list of dicts."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM priced_services WHERE job_id = ? ORDER BY service_name, price_value",
+            (job_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def fail_job(job_id: str, error_message: str, timed_out: bool = False) -> None:

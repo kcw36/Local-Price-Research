@@ -41,6 +41,14 @@ class Settings:
         == "true"
     )
 
+    # Data sources — toggle individual scrapers on/off
+    sources_enabled: dict = field(
+        default_factory=lambda: {
+            "checkatrade": True,
+            "yell": os.getenv("YELL_ENABLED", "false").lower() == "true",
+        }
+    )
+
     # Database
     database_path: str = field(
         default_factory=lambda: os.getenv("DATABASE_PATH", "jobs.db")

@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2.0] - 2026-03-22
+
+### Added
+- **Data Source Pivot**: Checkatrade "Priced Services" carousel as primary price source — structured pricing data extracted directly from search results pages
+- `_parse_priced_services()` — pure-function parser for Checkatrade priced service cards (business name, service, price, unit)
+- `visit_checkatrade_profile()` — extracts phone and website from individual Checkatrade profile pages
+- `_browser_session()` context manager — unified Playwright browser lifecycle (one browser per job instead of per-page)
+- `_checkatrade_location()` — smart URL formatter handling UK postcodes and city names
+- `priced_services` SQLite table with dedup constraint on `(job_id, business_name, service_name)`
+- `store_priced_services()` / `get_priced_services()` database functions
+- `_summarize_priced_services()` — groups by service name, computes min/max/median/count
+- Per-service breakdown (`by_service`) in summary output and results page grid
+- Source badges (Checkatrade / Yell) on business listings in results table
+- `sources_enabled` config — toggle data sources on/off (Yell disabled by default)
+- `templates/error.html` — proper HTML error page (replaces JSON 404)
+- Checkatrade priced services HTML fixture for tests
+- 32 new tests across database, scraper, and summary modules; total 124 tests
+
+### Changed
+- `scrape_all()` returns `tuple[list, list]` — (businesses, priced_services)
+- `generate_summary()` accepts optional `priced_services` parameter, combines both data sources
+- Summary `sample_size` now counts priced services + website-extracted prices
+- Results page shows empty state only when `sample_size == 0` (fixes false "no data" message)
+- Loading page text updated: "Checkatrade" instead of "Yell.com and Checkatrade"
+- `/results/{job_id}` 404 now returns HTML error template instead of JSON
+
+### Fixed
+- ISSUE-001: Homepage info box referenced only Yell.com after Checkatrade was added
+- ISSUE-002: Results page showed duplicate "no pricing data" message when 0 results
+- ISSUE-003: Loading page text still said "Yell.com" only
+- Checkatrade URL format — postcodes now hyphenated correctly (e.g. B93-8tg)
+- Phone extraction from Checkatrade profiles
+
 ## [0.1.1.0] - 2026-03-22
 
 ### Changed

@@ -2,39 +2,73 @@
 <html lang="en">
 <head><title>Plumbers in Solihull — Checkatrade</title></head>
 <body>
-<div class="SearchResults_container__abc123">
+<!-- Checkatrade /Search/{Trade}/in/{Location} page structure (as of 2026-03).
+     Each result is a <li> card inside a <ul>. The business name is the text
+     of the /trades/ link. Phone numbers and external websites are included
+     here to exercise the extraction paths (in production they may be absent). -->
+<div class="mx-auto flex flex-col gap-4 md:max-w-screen-lg md:px-4">
+  <ul class="flex w-full flex-col gap-3 pb-2">
 
-  <div class="MemberCard_card__xK3p">
-    <h2 class="MemberCard_name__yR7q"><a href="/trades/solihull-plumbing-pro-111">Solihull Plumbing Pro</a></h2>
-    <span class="MemberCard_phone__zT2m">0121 777 8888</span>
-    <a href="https://www.solihull-plumbing-pro.example.com">Visit website</a>
-    <span class="MemberCard_location__aB4n">Solihull, West Midlands</span>
-    <span class="MemberCard_trade__cD5p">Plumber</span>
-  </div>
+    <!-- Card 1: name + phone + external website -->
+    <li class="flex flex-col rounded-2xl bg-card text-card-fg border border-card-border relative w-full overflow-visible p-6 shadow-md md:mx-auto md:max-w-screen-lg">
+      <div class="flex h-full flex-col gap-6 md:flex-row md:items-stretch">
+        <div class="flex flex-1 cursor-pointer flex-col">
+          <div class="flex gap-4">
+            <div>
+              <a href="/trades/solihull-plumbing-pro-111">Solihull Plumbing Pro</a>
+              <span class="phone">0121 777 8888</span>
+              <a href="https://www.solihull-plumbing-pro.example.com">Visit website</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
 
-  <div class="MemberCard_card__xK3p">
-    <h2 class="MemberCard_name__yR7q"><a href="/trades/ace-plumbers-solihull-222">Ace Plumbers Solihull</a></h2>
-    <span class="MemberCard_phone__zT2m">0121 999 0000</span>
-    <a href="https://www.ace-plumbers.example.com">Visit website</a>
-    <span class="MemberCard_location__aB4n">Shirley, Solihull</span>
-    <span class="MemberCard_trade__cD5p">Plumber, Gas Engineer</span>
-  </div>
+    <!-- Card 2: name + phone + external website -->
+    <li class="flex flex-col rounded-2xl bg-card text-card-fg border border-card-border relative w-full overflow-visible p-6 shadow-md md:mx-auto md:max-w-screen-lg">
+      <div class="flex h-full flex-col gap-6 md:flex-row md:items-stretch">
+        <div class="flex flex-1 cursor-pointer flex-col">
+          <div class="flex gap-4">
+            <div>
+              <a href="/trades/ace-plumbers-solihull-222">Ace Plumbers Solihull</a>
+              <span class="phone">0121 999 0000</span>
+              <a href="https://www.ace-plumbers.example.com">Visit website</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
 
-  <div class="MemberCard_card__xK3p">
-    <h2 class="MemberCard_name__yR7q"><a href="/trades/midlands-heating-co-333">Midlands Heating Co</a></h2>
-    <span class="MemberCard_phone__zT2m">07800 100 200</span>
-    <a href="https://www.midlands-heating.example.com">Visit website</a>
-    <span class="MemberCard_location__aB4n">Solihull, B91</span>
-    <span class="MemberCard_trade__cD5p">Heating Engineer</span>
-  </div>
+    <!-- Card 3: name + phone + external website -->
+    <li class="flex flex-col rounded-2xl bg-card text-card-fg border border-card-border relative w-full overflow-visible p-6 shadow-md md:mx-auto md:max-w-screen-lg">
+      <div class="flex h-full flex-col gap-6 md:flex-row md:items-stretch">
+        <div class="flex flex-1 cursor-pointer flex-col">
+          <div class="flex gap-4">
+            <div>
+              <a href="/trades/midlands-heating-co-333">Midlands Heating Co</a>
+              <span class="phone">07800 100 200</span>
+              <a href="https://www.midlands-heating.example.com">Visit website</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
 
-  <div class="MemberCard_card__xK3p">
-    <h2 class="MemberCard_name__yR7q"><a href="/trades/no-website-trades-444">No Website Trades</a></h2>
-    <span class="MemberCard_phone__zT2m">0121 444 5555</span>
-    <span class="MemberCard_location__aB4n">Solihull, B92</span>
-    <span class="MemberCard_trade__cD5p">Plumber</span>
-  </div>
+    <!-- Card 4: name + phone, no website -->
+    <li class="flex flex-col rounded-2xl bg-card text-card-fg border border-card-border relative w-full overflow-visible p-6 shadow-md md:mx-auto md:max-w-screen-lg">
+      <div class="flex h-full flex-col gap-6 md:flex-row md:items-stretch">
+        <div class="flex flex-1 cursor-pointer flex-col">
+          <div class="flex gap-4">
+            <div>
+              <a href="/trades/no-website-trades-444">No Website Trades</a>
+              <span class="phone">0121 444 5555</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
 
+  </ul>
 </div>
 </body>
 </html>

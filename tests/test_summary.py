@@ -6,7 +6,7 @@ LLM calls are mocked. No real API calls.
 
 import pytest
 
-from summary import generate_summary, _collect_prices, _plain_text_summary
+from summary import generate_summary, _collect_prices, _plain_text_summary, _summarize_priced_services
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def test_plain_text_summary_zero_prices():
     result = _plain_text_summary(businesses)
     assert result["sample_size"] == 0
     assert result["price_range"] is None
-    assert "no pricing data" in result["summary_text"].lower()
+    assert result["summary_text"] == ""
     assert result["low_sample_warning"] is False
 
 
@@ -170,3 +170,99 @@ def test_generate_summary_falls_back_when_llm_fails(monkeypatch):
     # Should fall back to plain-text, not raise
     assert result["sample_size"] == 5
     assert result["price_range"] is not None
+
+
+# ---------------------------------------------------------------------------
+# _summarize_priced_services
+# ---------------------------------------------------------------------------
+
+
+def _make_svc(biz: str, service: str, price: float, unit: str = "job") -> dict:
+    return {
+        "business_name": biz,
+        "service_name": service,
+        "price_value": price,
+        "price_unit": unit,
+        "source": "checkatrade",
+    }
+
+
+def test_summarize_groups_by_service():
+    services = [
+        _make_svc("A", "Boiler Repair", 95.0),
+        _make_svc("B", "Boiler Repair", 120.0),
+        _make_svc("C", "Boiler Service", 75.0),
+    ]
+    result = _summarize_priced_services(services)
+    names = {r["service_name"] for r in result}
+    assert "Boiler Repair" in names
+    assert "Boiler Service" in names
+
+
+def test_summarize_computes_stats():
+    services = [
+        _make_svc("A", "Boiler Repair", 80.0),
+        _make_svc("B", "Boiler Repair", 100.0),
+        _make_svc("C", "Boiler Repair", 120.0),
+    ]
+    result = _summarize_priced_services(services)
+    repair = [r for r in result if r["service_name"] == "Boiler Repair"][0]
+    assert repair["min"] == 80.0
+    assert repair["max"] == 120.0
+    assert repair["median"] == 100.0
+    assert repair["count"] == 3
+
+
+def test_summarize_empty_returns_empty():
+    assert _summarize_priced_services([]) == []
+
+
+def test_summarize_skips_zero_prices():
+    services = [_make_svc("A", "Repair", 0.0)]
+    result = _summarize_priced_services(services)
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _plain_text_summary with priced services
+# ---------------------------------------------------------------------------
+
+
+def test_plain_text_summary_with_priced_services():
+    businesses = [_make_biz("A", [])]
+    priced = [
+        _make_svc("A", "Boiler Repair", 80.0),
+        _make_svc("B", "Boiler Repair", 100.0),
+        _make_svc("C", "Boiler Repair", 120.0),
+    ]
+    result = _plain_text_summary(businesses, priced)
+    assert result["sample_size"] == 3
+    assert result["price_range"]["min"] == 80.0
+    assert result["price_range"]["max"] == 120.0
+    assert len(result["by_service"]) == 1
+    assert "Boiler Repair" in result["summary_text"]
+
+
+def test_plain_text_summary_combines_both_sources():
+    businesses = [_make_biz("A", [60.0])]
+    priced = [_make_svc("B", "Repair", 100.0)]
+    result = _plain_text_summary(businesses, priced)
+    assert result["sample_size"] == 2
+    assert result["price_range"]["min"] == 60.0
+    assert result["price_range"]["max"] == 100.0
+
+
+def test_generate_summary_with_priced_services_no_api_key(monkeypatch):
+    import config
+    monkeypatch.setattr(config.settings, "anthropic_api_key", "")
+
+    businesses = [_make_biz("A", [])]
+    priced = [
+        _make_svc("A", "Service", 75.0),
+        _make_svc("B", "Service", 85.0),
+        _make_svc("C", "Service", 95.0),
+    ]
+    result = generate_summary(businesses, priced)
+    assert result["sample_size"] == 3
+    assert result["by_service"] is not None
+    assert len(result["by_service"]) == 1
