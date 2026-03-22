@@ -79,7 +79,7 @@
 </div>
 {% endif %}
 
-{% if not summary or summary.sample_size == 0 %}
+{% if not summary %}
 <div class="card">
   <p style="color:#888; font-style:italic;">
     No pricing data was found across the {{ businesses | length }} businesses scanned.
