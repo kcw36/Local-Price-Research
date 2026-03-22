@@ -37,7 +37,9 @@ from database import (
     create_job,
     fail_job,
     get_job,
+    get_priced_services,
     init_db,
+    store_priced_services,
     update_job_progress,
 )
 from scraper import scrape_all
@@ -109,26 +111,30 @@ async def run_scrape_job(job_id: str, area: str, trade_type: str) -> None:
         update_job_progress(job_id, current, total)
 
     try:
-        businesses = await asyncio.wait_for(
+        businesses, priced_services = await asyncio.wait_for(
             scrape_all(area, trade_type, progress_cb=_progress),
             timeout=settings.job_timeout,
         )
+
+        # Persist priced services to their own table
+        store_priced_services(job_id, priced_services)
 
         # Attach area/trade_type to each business for context in summary
         for b in businesses:
             b["area"] = area
             b["trade_type"] = trade_type
 
-        summary = generate_summary(businesses)
+        summary = generate_summary(businesses, priced_services)
 
         complete_job(
             job_id,
             results={"businesses": businesses, "summary": summary},
         )
         logger.info(
-            "Job %s complete — %d businesses, %d prices",
+            "Job %s complete — %d businesses, %d priced services, %d prices",
             job_id,
             len(businesses),
+            len(priced_services),
             summary["sample_size"],
         )
 
@@ -199,7 +205,12 @@ async def job_status(job_id: str):
 async def results_page(request: Request, job_id: str):
     job = get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"error_title": "Job not found", "error_message": "This scan result doesn't exist or has expired."},
+            status_code=404,
+        )
 
     if job["status"] not in ("done", "error", "timeout"):
         # Still running — redirect back to the polling page
